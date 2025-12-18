@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.Serialization;
 using AOT;
 using Newtonsoft.Json;
@@ -7,7 +8,7 @@ using UnityEngine;
 using UnityEngine.Scripting;
 
 namespace LiveKit
-{
+{   
     [JsonConverter(typeof(StringEnumConverter))]
     public enum ConnectionState {
         [EnumMember(Value = "disconnected")]
@@ -47,6 +48,7 @@ namespace LiveKit
         public delegate void TrackSubscriptionPermissionChangedDelegate(RemoteTrackPublication publication, SubscriptionStatus status, RemoteParticipant participant);
         public delegate void AudioPlaybackChangedDelegate(bool playing);
         public delegate void AttributesChangedDelegate(Participant participant, JSMap<string, string> changedAttributes);
+        public delegate void TranscriptionReceivedDelegate(List<TranscriptionSegment> segments, Participant participant, TrackPublication publication);
 
         public event ReconnectingDelegate Reconnecting;
         public event ReconnectedDelegate Reconnected;
@@ -73,6 +75,7 @@ namespace LiveKit
         public event TrackSubscriptionPermissionChangedDelegate TrackSubscriptionPermissionChanged;
         public event AudioPlaybackChangedDelegate AudioPlaybackChanged;
         public event AttributesChangedDelegate AttributesChanged;
+        public event TranscriptionReceivedDelegate TranscriptionReceived;
 
         [MonoPInvokeCallback(typeof(JSNative.JSDelegate))]
         private static void EventReceived(IntPtr iptr)
@@ -83,9 +86,9 @@ namespace LiveKit
             try
             {
                 var room = Acquire<Room>(JSNative.GetFunctionInstance());
-
+                Debug.Log($"Test EventReceived: {evRef.Event}");
                 switch (evRef.Event)
-                {
+                {                   
                     case RoomEvent.Reconnecting:
                         Log.Debug("Room: Received Reconnecting");
                         room.Reconnecting?.Invoke();
@@ -293,6 +296,24 @@ namespace LiveKit
                             var participant = Acquire<Participant>(JSNative.ShiftStack());
                             Log.Debug($"Room: Received AttributesChanged({participant.Sid}, {changedAttributes})");
                             room.AttributesChanged?.Invoke(participant, changedAttributes);
+                            break;
+                        }
+                    case RoomEvent.TranscriptionReceived:
+                        {
+                            var segmentsPtr = JSNative.ShiftStack();
+                            var segments = JSNative.GetStruct<List<TranscriptionSegment>>(segmentsPtr);
+
+                            var participantPtr = JSNative.ShiftStack();
+                            Participant participant = null;
+                            if (!JSNative.IsNull(participantPtr) && !JSNative.IsUndefined(participantPtr))
+                                participant = Acquire<Participant>(participantPtr);
+
+                            var publicationPtr = JSNative.ShiftStack();
+                            TrackPublication publication = null;
+                            if (!JSNative.IsNull(publicationPtr) && !JSNative.IsUndefined(publicationPtr))
+                                publication = Acquire<TrackPublication>(publicationPtr);
+
+                            room.TranscriptionReceived?.Invoke(segments, participant, publication);
                             break;
                         }
                 }

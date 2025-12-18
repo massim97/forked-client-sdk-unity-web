@@ -1,6 +1,7 @@
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
 using System;
+using System.Collections.Generic;
 using System.Runtime.Serialization;
 using UnityEngine.Scripting;
 
@@ -215,7 +216,16 @@ namespace LiveKit
         [JsonProperty("smoothingTimeConstant")]
         public float? SmoothingTimeConstant { get; set; }
     }
-
+    [Serializable]
+    public struct SendTextOptions
+    {
+        [JsonProperty("destinationIdentities")]
+        public string[] DestinationIdentities { get; set; }
+        [JsonProperty("topic")]
+        public string Topic { get; set; }
+        [JsonProperty("attributes")]
+        public Dictionary<string, string> Attributes { get; set; }
+    }
     public struct VideoResolution
     {
         [JsonProperty("width")]
