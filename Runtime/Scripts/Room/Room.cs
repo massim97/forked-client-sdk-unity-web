@@ -47,7 +47,7 @@ namespace LiveKit
         public delegate void TrackStreamStateChangedDelegate(RemoteTrackPublication publication, TrackStreamState streamState, RemoteParticipant participant);
         public delegate void TrackSubscriptionPermissionChangedDelegate(RemoteTrackPublication publication, SubscriptionStatus status, RemoteParticipant participant);
         public delegate void AudioPlaybackChangedDelegate(bool playing);
-        public delegate void AttributesChangedDelegate(Participant participant, JSMap<string, string> changedAttributes);
+        public delegate void AttributesChangedDelegate(Participant participant, IReadOnlyDictionary<string, string> changedAttributes);
         public delegate void TranscriptionReceivedDelegate(List<TranscriptionSegment> segments, Participant participant, TrackPublication publication);
 
         public event ReconnectingDelegate Reconnecting;
@@ -292,10 +292,14 @@ namespace LiveKit
                         }
                     case RoomEvent.ParticipantAttributesChanged:
                         {
-                            var changedAttributes = Acquire<JSMap<string, string>>(JSNative.ShiftStack());
+                            // JS SDK passes a plain object {} from diffAttributes(), not a Map - read via JSON
+                            var changedAttributesPtr = JSNative.ShiftStack();
+                            IReadOnlyDictionary<string, string> changedAttributes = null;
+                            if (JSNative.IsObject(changedAttributesPtr) && !JSNative.IsNull(changedAttributesPtr) && !JSNative.IsUndefined(changedAttributesPtr))
+                                changedAttributes = JSNative.GetStruct<Dictionary<string, string>>(changedAttributesPtr);
                             var participant = Acquire<Participant>(JSNative.ShiftStack());
-                            Log.Debug($"Room: Received AttributesChanged({participant.Sid}, {changedAttributes})");
-                            room.AttributesChanged?.Invoke(participant, changedAttributes);
+                            Log.Debug($"Room: Received AttributesChanged({participant.Sid}, {changedAttributes?.Count ?? 0} changed)");
+                            room.AttributesChanged?.Invoke(participant, changedAttributes ?? new Dictionary<string, string>());
                             break;
                         }
                     case RoomEvent.TranscriptionReceived:
