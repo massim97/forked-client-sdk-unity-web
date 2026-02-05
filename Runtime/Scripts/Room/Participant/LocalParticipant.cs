@@ -164,27 +164,20 @@ namespace LiveKit
         {
             return PublishData(data, 0, data.Length, reliable, destinationIdentities, topic);
         }
-
         public JSPromise PublishData(byte[] data, int offset, int size, bool reliable, string[] destinationIdentities, string topic)
         {
-            JSArray<string> arr = null;
-            if (destinationIdentities != null)
-                arr = new JSArray<string>(destinationIdentities);
-
+            var options = new PublishDataOptions
+            {
+                Reliable = reliable,
+                DestinationIdentities = destinationIdentities,
+                Topic = topic
+            };
+           
             JSNative.PushData(data, offset, size);
-            JSNative.PushBoolean((bool)reliable);
+            JSNative.PushStruct(JsonConvert.SerializeObject(options, JSNative.JsonSettings));
 
-            if (destinationIdentities == null)
-                JSNative.PushUndefined();
-            else
-                JSNative.PushObject(arr.NativeHandle);
-
-            if(topic == null)
-                JSNative.PushUndefined();
-            else
-                JSNative.PushString(topic);
-
-            return Acquire<JSPromise>(JSNative.CallMethod(NativeHandle, "publishData"));
+            var result = JSNative.CallMethod(NativeHandle, "publishData");
+            return Acquire<JSPromise>(result);
         }
         public JSPromise SendText(string text, string[] destinationIdentities = null, string topic = null, Dictionary<string, string> attributes = null)
         {
