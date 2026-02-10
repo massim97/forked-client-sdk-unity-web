@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<linker>
+  <!--
+  When this SDK is used as a PACKAGE (not as an asset in the same project), IL2CPP
+  can strip types that are only used via reflection. Newtonsoft.Json uses reflection
+  to set TranscriptionSegment properties when deserializing; if the setters are
+  stripped, segment.Text (and other fields) stay empty even though the JSON from JS is correct.
+  TranscriptionSegment is the only type here used ONLY via GetStruct<T> + reflection,
+  so it is the one that fails in package/WebGL builds. This file prevents that stripping.
+  -->
+  <assembly fullname="LiveKitBridge">
+    <type fullname="LiveKit.TranscriptionSegment" preserve="all"/>
+  </assembly>
+</linker>
