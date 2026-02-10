@@ -1,8 +1,10 @@
 using Newtonsoft.Json;
 using System;
+using UnityEngine.Scripting;
 
 namespace LiveKit
 {
+    [Preserve]
     [Serializable]
     public struct TranscriptionSegment
     {

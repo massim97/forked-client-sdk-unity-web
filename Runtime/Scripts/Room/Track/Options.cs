@@ -216,6 +216,8 @@ namespace LiveKit
         [JsonProperty("smoothingTimeConstant")]
         public float? SmoothingTimeConstant { get; set; }
     }
+    
+    [Preserve]
     [Serializable]
     public struct SendTextOptions
     {

@@ -1,6 +1,10 @@
 using Newtonsoft.Json;
+using UnityEngine.Scripting;
+using System;
 namespace LiveKit
 {
+    [Preserve]
+    [Serializable]
     public struct PublishDataOptions
     {
         [JsonProperty("reliable")]
