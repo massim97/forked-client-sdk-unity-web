@@ -9,13 +9,32 @@ var NativeLib = {
         StackCSharp: [],
         FunctionInstance: null, // Current instance in a callback ( = this )
         NullPtr: 0,
+        VideoFrames: null, // Map<number, object> (CPU video path, used when there is no WebGL context)
+        NextVideoFrameId: 1,
 
+        PrepareVideo: function (videoPtr) {
+            var video = LKBridge.Data.get(videoPtr);
+            video.style.opacity = 0;
+            video.style.width = 0;
+            video.style.height = 0;
+            setTimeout(function() {
+                video.play();
+            }, 0)
+            video.addEventListener("canplay", (event) => {
+                video.play();
+            });
+
+            document.body.appendChild(video);
+            return video;
+        },
+
+        // Runtime.dynCall and the global dynCall no longer exist from Unity 6 (Emscripten 3.x).
+        // makeDynCall is expanded at build time, so it needs a literal signature: only 'vi' is used.
         DynCall: function (sig, fnc, args) {
-            if (typeof Runtime !== 'undefined') {
-                Runtime.dynCall(sig, fnc, args); // Old Unity version
-            } else {
-                dynCall(sig, fnc, args);
+            if (sig !== 'vi') {
+                throw new Error("LKBridge.DynCall: unsupported signature '" + sig + "'");
             }
+            {{{ makeDynCall('vi', 'fnc') }}}(args[0]);
         },
 
         NewRef: function () {
@@ -96,6 +115,7 @@ var NativeLib = {
         LKBridge.Data = new Map();
         LKBridge.Pointers = new Map();
         LKBridge.RefCount = new Map();
+        LKBridge.VideoFrames = new Map();
 
         window.lkinternal = LKBridge;
     },
@@ -287,6 +307,11 @@ var NativeLib = {
     },
 
     // Video Receive
+    // GLctx is undefined when the player runs on WebGPU (Unity 6+), textures must then be fed through the CPU
+    IsWebGLContextAvailable: function () {
+        return (typeof GLctx !== 'undefined' && GLctx) ? 1 : 0;
+    },
+
     NewTexture: function () {
         var tex = GLctx.createTexture();
         if (!tex){
@@ -308,18 +333,7 @@ var NativeLib = {
         var tex = GL.textures[texId];
         var lastTime = -1;
 
-        var initialVideo = LKBridge.Data.get(videoPtr);
-        initialVideo.style.opacity = 0;
-        initialVideo.style.width = 0;
-        initialVideo.style.height = 0;
-        setTimeout(function() {
-            initialVideo.play();
-        }, 0)
-        initialVideo.addEventListener("canplay", (event) => {
-            initialVideo.play();
-        });
- 
-        document.body.appendChild(initialVideo);
+        var initialVideo = LKBridge.PrepareVideo(videoPtr);
         var updateVideo = function () {
             var video = LKBridge.Data.get(videoPtr);
             if (video === undefined) {
@@ -347,6 +361,148 @@ var NativeLib = {
         };
         
         requestAnimationFrame(updateVideo);
+    },
+
+    // Video Receive (WebGPU): Unity's Texture2D is filled from the C# side, polled every frame.
+    // Frames are copied on the GPU (copyExternalImageToTexture) when Unity's GPUTexture is reachable,
+    // otherwise they are read back through a 2D canvas and uploaded by C# (LoadRawTextureData).
+    AttachVideoCPU: function (videoPtr) {
+        var video = LKBridge.PrepareVideo(videoPtr);
+        var id = LKBridge.NextVideoFrameId++;
+
+        LKBridge.VideoFrames.set(id, {
+            videoPtr: videoPtr,
+            element: video,
+            canvas: null,
+            ctx: null,
+            texture: null, // GPUTexture of the Unity Texture2D
+            device: null,
+            lastTime: -1,
+            width: 0,
+            height: 0,
+        });
+        return id;
+    },
+
+    // Binds the native pointer of a Unity texture, returns 1 if frames can be copied on the GPU
+    BindVideoFrameTexture: function (id, nativePtr) {
+        var frame = LKBridge.VideoFrames.get(id);
+        if (frame === undefined)
+            return 0;
+
+        frame.texture = null;
+        frame.device = null;
+
+        // wgpu is Unity's WebGPU object table (handle -> GPU object)
+        if (typeof wgpu === 'undefined' || typeof GPUTexture === 'undefined')
+            return 0;
+
+        var texture = wgpu[nativePtr];
+        if (!(texture instanceof GPUTexture))
+            return 0;
+
+        var requiredUsage = GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT;
+        if ((texture.usage & requiredUsage) !== requiredUsage)
+            return 0;
+
+        var device = (Module["WebGPU"] && Module["WebGPU"].device) || texture.parentObject;
+        if (!(device instanceof GPUDevice))
+            return 0;
+
+        frame.texture = texture;
+        frame.device = device;
+        return 1;
+    },
+
+    // Returns 1 when a new frame is available ( size: GetVideoFrameWidth/GetVideoFrameHeight )
+    UpdateVideoFrame: function (id) {
+        var frame = LKBridge.VideoFrames.get(id);
+        if (frame === undefined)
+            return 0;
+
+        var video = LKBridge.Data.get(frame.videoPtr);
+        if (video === undefined) {
+            frame.element.remove();
+            LKBridge.VideoFrames.delete(id);
+            return 0;
+        }
+
+        var time = video.currentTime;
+        var width = video.videoWidth;
+        var height = video.videoHeight;
+        if (video.paused || video.srcObject === null || time === frame.lastTime || width === 0 || height === 0)
+            return 0;
+
+        frame.lastTime = time;
+        frame.width = width;
+        frame.height = height;
+        return 1;
+    },
+
+    // Copies the current frame into the bound GPUTexture, returns 0 on failure ( fallback to CopyVideoFrame )
+    UploadVideoFrameGPU: function (id) {
+        var frame = LKBridge.VideoFrames.get(id);
+        if (frame === undefined || frame.texture === null)
+            return 0;
+
+        if (frame.texture.width !== frame.width || frame.texture.height !== frame.height)
+            return 0;
+
+        try {
+            frame.device.queue.copyExternalImageToTexture(
+                { source: frame.element, flipY: true },
+                { texture: frame.texture },
+                [frame.width, frame.height]);
+        } catch (e) {
+            console.warn("LKBridge: GPU video upload failed, falling back to CPU copy", e);
+            frame.texture = null;
+            return 0;
+        }
+        return 1;
+    },
+
+    GetVideoFrameWidth: function (id) {
+        var frame = LKBridge.VideoFrames.get(id);
+        return frame === undefined ? 0 : frame.width;
+    },
+
+    GetVideoFrameHeight: function (id) {
+        var frame = LKBridge.VideoFrames.get(id);
+        return frame === undefined ? 0 : frame.height;
+    },
+
+    CopyVideoFrame: function (id, buffer, size) {
+        var frame = LKBridge.VideoFrames.get(id);
+        if (frame === undefined || frame.width === 0 || frame.height === 0)
+            return;
+
+        if (frame.canvas === null) {
+            frame.canvas = document.createElement("canvas");
+            frame.ctx = frame.canvas.getContext("2d", { willReadFrequently: true });
+        }
+
+        var width = frame.width;
+        var height = frame.height;
+        if (frame.canvas.width !== width || frame.canvas.height !== height) {
+            frame.canvas.width = width;
+            frame.canvas.height = height;
+        }
+
+        // Flip Y
+        frame.ctx.setTransform(1, 0, 0, -1, 0, height);
+        frame.ctx.drawImage(frame.element, 0, 0, width, height);
+
+        var data = frame.ctx.getImageData(0, 0, width, height).data;
+        HEAPU8.set(data.subarray(0, size), buffer);
+    },
+
+    DestroyVideoCPU: function (id) {
+        var frame = LKBridge.VideoFrames.get(id);
+        if (frame === undefined)
+            return;
+
+        frame.element.remove();
+        LKBridge.VideoFrames.delete(id);
     },
 };
 
