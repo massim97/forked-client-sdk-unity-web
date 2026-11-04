@@ -538,7 +538,11 @@ namespace LiveKit
 
         protected override void OnReject()
         {
-            Error = Acquire<JSError>(RejectHandle);
+            // base.OnReject() pops the rejection value into RejectHandle; skipping it left the handle
+            // null, so Acquire threw and the promise never completed (connect coroutine hung forever).
+            base.OnReject();
+            if (JSNative.IsObject(RejectHandle))
+                Error = Acquire<JSError>(RejectHandle);
         }
     }
 }

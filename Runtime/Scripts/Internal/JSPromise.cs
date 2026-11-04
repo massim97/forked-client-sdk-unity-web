@@ -17,8 +17,15 @@ namespace LiveKit
                     return; // The promise can be garbage collected before completed (When ignoring Promise)
             
                 var promise = Acquire<JSPromise>(handle);
-                promise.OnResolve();
-                promise.IsDone = true;
+                // Complete the promise even if OnResolve throws, so a coroutine yielding on it cannot hang.
+                try
+                {
+                    promise.OnResolve();
+                }
+                finally
+                {
+                    promise.IsDone = true;
+                }
             }
             catch (Exception e)
             {
@@ -36,9 +43,16 @@ namespace LiveKit
                     return;
             
                 var promise = Acquire<JSPromise>(handle);
-                promise.OnReject();
-                promise.IsDone = true;
-                promise.IsError = true;
+                // Complete the promise even if OnReject throws, so a coroutine yielding on it cannot hang.
+                try
+                {
+                    promise.OnReject();
+                }
+                finally
+                {
+                    promise.IsError = true;
+                    promise.IsDone = true;
+                }
             }
             catch (Exception e)
             {
