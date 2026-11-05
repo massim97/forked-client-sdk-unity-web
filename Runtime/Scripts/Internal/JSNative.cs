@@ -155,6 +155,9 @@ namespace LiveKit
         internal static extern JSHandle RetrieveWindowObject();
 
         [DllImport("__Internal")]
+        internal static extern bool IsWebGLContextAvailable();
+
+        [DllImport("__Internal")]
         internal static extern int NewTexture();
 
         [DllImport("__Internal")]
@@ -162,6 +165,30 @@ namespace LiveKit
         
         [DllImport("__Internal")]
         internal static extern void AttachVideo(JSHandle video, int texId);
+
+        [DllImport("__Internal")]
+        internal static extern int AttachVideoCPU(JSHandle video);
+
+        [DllImport("__Internal")]
+        internal static extern bool BindVideoFrameTexture(int frameId, IntPtr nativeTexture);
+
+        [DllImport("__Internal")]
+        internal static extern bool UpdateVideoFrame(int frameId);
+
+        [DllImport("__Internal")]
+        internal static extern bool UploadVideoFrameGPU(int frameId);
+
+        [DllImport("__Internal")]
+        internal static extern int GetVideoFrameWidth(int frameId);
+
+        [DllImport("__Internal")]
+        internal static extern int GetVideoFrameHeight(int frameId);
+
+        [DllImport("__Internal")]
+        internal static extern void CopyVideoFrame(int frameId, [Out] byte[] data, int size);
+
+        [DllImport("__Internal")]
+        internal static extern void DestroyVideoCPU(int frameId);
 
         internal static T GetStruct<T>(JSHandle ptr)
         {
