@@ -14,6 +14,13 @@ var NativeLib = {
 
         PrepareVideo: function (videoPtr) {
             var video = LKBridge.Data.get(videoPtr);
+            // Take the hidden element out of the document flow: an inline
+            // <video> still adds a line box to <body> even at 0x0, which
+            // makes the page scroll when a screen share / camera starts.
+            video.style.position = 'absolute';
+            video.style.top = '0';
+            video.style.left = '0';
+            video.style.pointerEvents = 'none';
             video.style.opacity = 0;
             video.style.width = 0;
             video.style.height = 0;
